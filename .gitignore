@@ -1,0 +1,16 @@
+data/
+*.parquet
+*.zip
+mlruns/
+mlartifacts/
+model/
+.env
+.dvc/config.local
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+.idea/
+.vscode/
