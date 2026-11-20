@@ -1,27 +1,29 @@
 services:
-  minio:
-    image: minio/minio
-    command: server /data --console-address ":9001"
+  minio:                       # stockage S3 (RustFS, remplaçant de Minio)
+    image: rustfs/rustfs:latest
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_CONSOLE_ADDRESS: 0.0.0.0:9001
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_ACCESS_KEY: ${MINIO_ROOT_USER}
+      RUSTFS_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
     ports: ["9000:9000", "9001:9001"]
     volumes: [minio-data:/data]
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 5s
-      retries: 10
 
-  minio-init:
-    image: minio/mc
-    depends_on:
-      minio: { condition: service_healthy }
-    entrypoint: >
-      sh -c "mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD} &&
-             mc mb --ignore-existing local/mlflow local/dvc"
+  minio-init:                  # crée les buckets mlflow et dvc, puis s'arrête
+    image: amazon/aws-cli:latest
+    depends_on: [minio]
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      AWS_DEFAULT_REGION: us-east-1
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until aws --endpoint-url http://minio:9000 s3 ls; do echo "attente du stockage..."; sleep 2; done
+        aws --endpoint-url http://minio:9000 s3 mb s3://mlflow || true
+        aws --endpoint-url http://minio:9000 s3 mb s3://dvc || true
 
   postgres:
     image: postgres:16
@@ -33,7 +35,9 @@ services:
 
   mlflow:
     build: docker/mlflow
-    depends_on: [postgres, minio-init]
+    depends_on:
+      postgres: { condition: service_started }
+      minio-init: { condition: service_completed_successfully }
     environment:
       MLFLOW_S3_ENDPOINT_URL: http://minio:9000
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
