@@ -77,10 +77,10 @@ data (Minio + DVC) → training (PyTorch) → tracking & registry (MLflow, artif
 | # | Member | Scope | Folders / files |
 |---|---|---|---|
 | 1 | @Andrianrjs | Data + model | `src/rides/data.py`, `model.py`, `train.py` |
-| 2 | @handle2 | MLflow + DVC pipeline | `src/rides/evaluate.py`, `dvc.yaml`, `params.yaml` |
-| 3 | @handle3 | API + web app | `src/rides/api/`, `webapp/` |
-| 4 | @handle4 | Docker + Kubernetes | `docker/`, `docker-compose.yml`, `k8s/` |
-| 5 | @handle5 | CI/CD + tests + bonus | `.github/workflows/`, `tests/`, `monitoring/` |
+| 2 | @mnegron-cloud| MLflow + DVC pipeline | `src/rides/evaluate.py`, `dvc.yaml`, `params.yaml` |
+| 3 | @sjoshi-rgb | API + web app | `src/rides/api/`, `webapp/` |
+| 4 | @lcaquelin | Docker + Kubernetes | `docker/`, `docker-compose.yml`, `k8s/` |
+| 5 | @clemencemarco-prog | CI/CD + tests + bonus | `.github/workflows/`, `tests/`, `monitoring/` |
 
 **Everyone**: final README, screenshots, defence preparation.
 
