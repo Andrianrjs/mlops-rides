@@ -129,8 +129,12 @@ data (Minio + DVC) → training (PyTorch) → tracking & registry (MLflow, artif
 ##  Contracts between parts
 Fixed now so everyone can work in parallel. **Do not change without telling the team.**
 
-| Item | Value |
-|---|---|
+| Item | Valeur |
+| --- | --- |
+| T | 100 pas (10 s à 100 ms). Le modèle accepte aussi un trajet entier, T ≥ 10 |
+| C | 6 : `ax, ay, az, rx, ry, rz`, dans cet ordre |
+| Normalisation | **à l'intérieur du modèle**, l'API envoie les valeurs brutes |
+| Noms des classes | `Safe, Safe overall, Bad weather, Tandem, Reckless` |
 | MLflow model name | `rides-classifier` |
 | Alias used by the API | `@staging` |
 | Model input | `float32`, shape `(batch, T, C)` *(T and C set by @Andrianrjs)* |
@@ -147,7 +151,7 @@ Fixed now so everyone can work in parallel. **Do not change without telling the 
 git clone https://github.com/Andrianrjs/mlops-rides.git && cd mlops-rides
 uv sync
 cp .env.example .env
-docker compose up -d     # MLflow → http://localhost:5000 · Minio console → http://localhost:9001
+docker compose up -d     # MLflow → http://localhost:5001 · Minio console → http://localhost:9001
 # Data: copy GBG500.parquet and GBG500_labels.csv into data/raw/ (until `dvc pull` is set up)
 uv run uvicorn rides.api.main:app --reload   # Swagger → http://localhost:8000/docs
 ```

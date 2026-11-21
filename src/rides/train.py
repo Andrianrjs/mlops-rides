@@ -94,9 +94,12 @@ def main():
             inputs=Schema([TensorSpec(np.dtype(np.float32), (-1, -1, len(SENSORS)))]),  # any number of steps
             outputs=Schema([TensorSpec(np.dtype(np.float32), (-1, len(CLASSES)))]),
         )
+        
+        input_example = ds.x_test[:1].astype("float32")   # numpy, shape (1, T, C)
         mlflow.pytorch.log_model(
-            model, artifact_path="model", signature=signature,
-            code_paths=["src/rides"],  # ships the RidesClassifier class with the model
+            model,
+            name="model", 
+            input_example=input_example,
             registered_model_name="rides-classifier",
         )
 
