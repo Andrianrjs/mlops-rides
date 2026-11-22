@@ -1,0 +1,3 @@
+# LF everywhere, also on Windows checkouts: DVC hashes the raw bytes of code deps,
+# so CRLF on one machine and LF on another would make every stage look modified.
+* text=auto eol=lf
