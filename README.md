@@ -188,7 +188,7 @@ GBG500.parquet.dvc   GBG500_labels.csv.dvc
 - **Known limit:** if you re-run `evaluate` on the version already in `@staging` with a stricter gate, it is tagged `failed` but keeps `@staging` (the API is never left without a model).
 
 ### Data with DVC
-The remote is the `dvc` bucket on **your own** local RustFS (`localhost:9000`), so the first time it is empty. Seed it once: copy `GBG500.parquet` and `GBG500_labels.csv` into `data/raw/`, run `uv run dvc add data/raw/GBG500.parquet data/raw/GBG500_labels.csv` (`git status` must show no change to the `.dvc` files: same data, same hash), then `uv run dvc push`. After that, `dvc pull` / `dvc push` work as usual.
+The remote is the `dvc` bucket on **your own** local RustFS (`localhost:9000`), so the first time it is empty. Seed it once: copy `GBG500.parquet` and `GBG500_labels.csv` into `data/raw/`, run `uv run dvc add data/raw/GBG500.parquet data/raw/GBG500_labels.csv` (`git diff` must show no change to the `.dvc` files: same data, same hash), then `uv run dvc push`. After that, `dvc pull` / `dvc push` work as usual.
 
 Windows: `PYTHONUTF8=1` in `.env` (already in `.env.example`) avoids a crash when MLflow prints emojis under `dvc repro`. Line endings are forced to LF (`.gitattributes`) because DVC hashes the bytes of the code it depends on: CRLF on one machine would make every stage look changed on the others.
 

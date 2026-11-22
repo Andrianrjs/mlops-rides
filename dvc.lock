@@ -97,8 +97,8 @@ stages:
       size: 3849
     - path: src/rides/evaluate.py
       hash: md5
-      md5: bad7d84e715c3e4cd721899194702297
-      size: 5746
+      md5: d58bc8e1289468ebeb5b3234c453db85
+      size: 5836
     - path: src/rides/prepare.py
       hash: md5
       md5: 3b4afac9f160314c52722e34454ffd0c

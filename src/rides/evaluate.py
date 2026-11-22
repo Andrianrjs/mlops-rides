@@ -56,7 +56,8 @@ def window_metrics(probas: np.ndarray, y: np.ndarray) -> dict:
 def main():
     p = load_params("evaluate")
     info = json.loads(TRAIN_INFO.read_text())
-    name, version, run_id = info["model_name"], info["model_version"], info["run_id"]
+    # str: the MLflow server returns versions as strings, a local file store as ints
+    name, version, run_id = info["model_name"], str(info["model_version"]), info["run_id"]
     client = MlflowClient()
 
     w = load_windows()
