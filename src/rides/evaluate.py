@@ -105,15 +105,16 @@ def main():
     if promote:
         client.set_registered_model_alias(name, p["alias"], version)
 
-    # files for dvc metrics / dvc plots
+    # files for dvc metrics / dvc plots, committed to git: always LF, so their hash in dvc.lock
+    # is the same on Windows and Mac/Linux (Python would write CRLF on Windows)
     EVAL_FILE.parent.mkdir(parents=True, exist_ok=True)
     EVAL_FILE.write_text(json.dumps({
         "model_version": int(version), "promoted": promote, "reason": reason,
         "window": candidate, "ride": ride, "baseline": baseline,
         "champion": {"version": int(champion_version), **champion} if champion else None,
-    }, indent=2))
+    }, indent=2) + "\n", newline="\n")
     pd.DataFrame({"actual": np.array(CLASSES)[y], "predicted": np.array(CLASSES)[probas.argmax(1)]}).to_csv(
-        PREDICTIONS_FILE, index=False
+        PREDICTIONS_FILE, index=False, lineterminator="\n"
     )
 
 
