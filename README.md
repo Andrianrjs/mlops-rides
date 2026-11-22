@@ -92,7 +92,7 @@ data (Minio + DVC) → training (PyTorch) → tracking & registry (MLflow, artif
 - [ ] Handle class imbalance (class weights or oversampling)
 - **Hands over:** the exact model input format: window length **T**, list of the **C** sensor columns, normalisation stats
 
-### 2 · MLflow + pipeline — @handle2
+### 2 · MLflow + pipeline — @mnegron-cloud
 - [ ] `evaluate.py`: macro F1, Reckless recall, confusion matrix logged to MLflow; promote to **`@staging`** if better than baseline
 - [ ] DVC: `dvc init`, Minio remote (bucket `dvc`), `dvc add data/raw/GBG500.parquet`, `dvc push`
 - [ ] `dvc.yaml`: `prepare → train → evaluate` DAG (the required pipeline DAG)
