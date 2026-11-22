@@ -1,0 +1,21 @@
+# Single source of truth for the pipeline (dvc.yaml reads it, so changing a value re-runs the stages that use it).
+# Write floats as 0.001, not 1e-3: YAML would read 1e-3 as a string.
+
+prepare:
+  window: 100       # 100 steps x 100 ms = 10 s (model contract: T = 100)
+  stride: 50        # 50 % overlap between consecutive windows
+  test_size: 0.2    # share of rides held out, split by ride and stratified on the label
+  seed: 42
+
+train:
+  epochs: 15
+  batch_size: 128
+  lr: 0.001
+  channels: 64
+  dropout: 0.3
+  seed: 42
+
+evaluate:
+  model_name: rides-classifier
+  alias: staging     # the API serves models:/rides-classifier@staging
+  min_gain: 0.05     # window macro F1 must beat the "always Safe" baseline by at least this much

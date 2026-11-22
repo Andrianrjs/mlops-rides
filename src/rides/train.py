@@ -9,10 +9,10 @@ from sklearn.metrics import confusion_matrix, f1_score, recall_score
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
+from rides.config import load_params
 from rides.data import CLASSES, SENSORS, WINDOW, prepare
 from rides.model import RidesClassifier
 
-PARAMS = dict(epochs=15, batch_size=128, lr=1e-3, channels=64, dropout=0.3, seed=42)
 RECKLESS = CLASSES.index("Reckless")
 BORDERLINE = [CLASSES.index(c) for c in ("Safe overall", "Bad weather", "Tandem")]
 
@@ -43,27 +43,28 @@ def per_ride(probas: np.ndarray, y: np.ndarray, rides: np.ndarray) -> tuple[np.n
 
 
 def main():
-    torch.manual_seed(PARAMS["seed"])
+    params = load_params("train")  # hyperparameters live in params.yaml
+    torch.manual_seed(params["seed"])
     device = "mps" if torch.backends.mps.is_available() else "cpu"  # Apple GPU when available
-    ds = prepare(seed=PARAMS["seed"])
+    ds = prepare(seed=load_params("prepare")["seed"])
 
     # class imbalance: each class weighs inversely to its frequency (Reckless ~58x Safe)
     counts = np.bincount(ds.y_train, minlength=len(CLASSES))
     class_weights = torch.tensor(counts.sum() / (len(CLASSES) * counts), dtype=torch.float32)
 
-    model = RidesClassifier(ds.scaler.mean, ds.scaler.std, PARAMS["channels"], PARAMS["dropout"]).to(device)
+    model = RidesClassifier(ds.scaler.mean, ds.scaler.std, params["channels"], params["dropout"]).to(device)
     loss_fn = nn.CrossEntropyLoss(weight=class_weights.to(device))
-    optimizer = torch.optim.Adam(model.parameters(), lr=PARAMS["lr"])
+    optimizer = torch.optim.Adam(model.parameters(), lr=params["lr"])
     loader = DataLoader(
         TensorDataset(torch.from_numpy(ds.x_train), torch.from_numpy(ds.y_train)),
-        batch_size=PARAMS["batch_size"], shuffle=True,
+        batch_size=params["batch_size"], shuffle=True,
     )
 
     mlflow.set_experiment("rides")
     with mlflow.start_run():
-        mlflow.log_params({**PARAMS, "window": WINDOW, "sensors": ",".join(SENSORS), "device": device})
+        mlflow.log_params({**params, "window": WINDOW, "sensors": ",".join(SENSORS), "device": device})
 
-        for epoch in range(PARAMS["epochs"]):
+        for epoch in range(params["epochs"]):
             model.train()
             total = 0.0
             for xb, yb in loader:
