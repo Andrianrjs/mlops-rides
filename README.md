@@ -92,11 +92,11 @@ data (Minio + DVC) → training (PyTorch) → tracking & registry (MLflow, artif
 - [ ] Handle class imbalance (class weights or oversampling)
 - **Hands over:** the exact model input format: window length **T**, list of the **C** sensor columns, normalisation stats
 
-### 2 · MLflow + pipeline — @handle2
-- [ ] `evaluate.py`: macro F1, Reckless recall, confusion matrix logged to MLflow; promote to **`@staging`** if better than baseline
-- [ ] DVC: `dvc init`, Minio remote (bucket `dvc`), `dvc add data/raw/GBG500.parquet`, `dvc push`
-- [ ] `dvc.yaml`: `prepare → train → evaluate` DAG (the required pipeline DAG)
-- [ ] `params.yaml`: hyperparameters
+### 2 · MLflow + pipeline — @mnegron-cloud
+- [x] `evaluate.py`: macro F1, Reckless recall, confusion matrix logged to MLflow; promote to **`@staging`** if better than baseline
+- [x] DVC: `dvc init`, Minio remote (bucket `dvc`), `dvc add data/raw/GBG500.parquet`, `dvc push`
+- [x] `dvc.yaml`: `prepare → train → evaluate` DAG (the required pipeline DAG)
+- [x] `params.yaml`: hyperparameters
 - **Hands over:** a `models:/rides-classifier@staging` model in MLflow
 
 ### 3 · API + web app — @handle3
@@ -152,9 +152,42 @@ git clone https://github.com/Andrianrjs/mlops-rides.git && cd mlops-rides
 uv sync
 cp .env.example .env
 docker compose up -d     # MLflow → http://localhost:5001 · Minio console → http://localhost:9001
-# Data: copy GBG500.parquet and GBG500_labels.csv into data/raw/ (until `dvc pull` is set up)
+uv run dvc remote modify --local storage access_key_id minio            # RustFS credentials,
+uv run dvc remote modify --local storage secret_access_key minio-secret # kept out of git (.dvc/config.local)
+uv run dvc pull          # data/raw/ from the dvc bucket (first time: see "Data with DVC" below)
+uv run --env-file .env dvc repro             # prepare → train → evaluate, sets @staging
 uv run uvicorn rides.api.main:app --reload   # Swagger → http://localhost:8000/docs
 ```
+
+---
+
+## 🔁 Pipeline: DVC + MLflow
+
+```
+GBG500.parquet.dvc   GBG500_labels.csv.dvc
+             \           /
+              prepare          → data/processed/windows.npz (raw 100-step windows, split by ride)
+             /       \
+         train        |        → registers a new rides-classifier version, writes reports/train_info.json
+             \       /
+             evaluate          → evaluation gate, sets @staging, writes reports/eval.json
+```
+
+- **Run it:** `uv run --env-file .env dvc repro`. A stage re-runs only if its code, data or `params.yaml` section changed (`uv run dvc dag` shows the graph).
+- **Settings:** everything is in `params.yaml` (`prepare`: window, stride, split · `train`: hyperparameters · `evaluate`: gate). Try a change without committing it: `uv run --env-file .env dvc exp run -S train.epochs=20`.
+- **Results:** `uv run dvc metrics show` (`reports/eval.json`), `uv run dvc plots show` (confusion matrix), and in MLflow: the run's `eval/confusion_matrix.png`, the version's `eval_*` tags.
+- **Evaluation gate** (`should_promote` in `src/rides/evaluate.py`): the new version gets `@staging` only if, on the test windows,
+  1. its macro F1 beats the "always Safe" baseline by at least `evaluate.min_gain` (0.05),
+  2. its Reckless recall is above the baseline's (0),
+  3. its macro F1 is not below the model currently in `@staging` (re-scored on the same test set).
+
+  A failed gate does not fail `dvc repro`: it is recorded in `reports/eval.json` (`"promoted": false`) and in the version's `eval_gate` / `eval_reason` tags.
+- **Model format:** logged as pickle with an explicit signature `(-1, -1, 6)`, so any batch size and any T ≥ 10 work through `mlflow.pyfunc` (MLflow's default pt2 format would freeze batch = 1 and T = 100). The API must send `float32`.
+
+### Data with DVC
+The remote is the `dvc` bucket on **your own** local RustFS (`localhost:9000`), so the first time it is empty. Seed it once: copy `GBG500.parquet` and `GBG500_labels.csv` into `data/raw/`, run `uv run dvc add data/raw/GBG500.parquet data/raw/GBG500_labels.csv` (`git status` must show no change to the `.dvc` files: same data, same hash), then `uv run dvc push`. After that, `dvc pull` / `dvc push` work as usual.
+
+Windows: `PYTHONUTF8=1` in `.env` (already in `.env.example`) avoids a crash when MLflow prints emojis under `dvc repro`.
 
 ---
 
