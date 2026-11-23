@@ -1,0 +1,13 @@
+# Non-secret settings. Credentials live in the "rides-secrets" Secret, created from .env (see README):
+#   kubectl create secret generic rides-secrets -n rides --from-env-file=.env
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rides-config
+  namespace: rides
+data:
+  MODEL_URI: models:/rides-classifier@staging
+  MLFLOW_TRACKING_URI: http://mlflow:5000
+  MLFLOW_S3_ENDPOINT_URL: http://rustfs:9000
+  # Host headers MLflow accepts (DNS rebinding protection): port-forwards / LoadBalancer on localhost, and the API
+  MLFLOW_SERVER_ALLOWED_HOSTS: "localhost:*,mlflow:5000"

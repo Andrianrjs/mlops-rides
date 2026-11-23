@@ -40,6 +40,7 @@ services:
 
   mlflow:
     build: docker/mlflow
+    image: louisec13012/rides-mlflow:0.1.0
     depends_on:
       postgres: { condition: service_healthy }
       rustfs-init: { condition: service_completed_successfully }
@@ -64,6 +65,7 @@ services:
     build:
       context: .
       dockerfile: docker/api.Dockerfile
+    image: louisec13012/rides-api:0.1.0
     depends_on:
       mlflow: { condition: service_healthy }
     environment:

@@ -1,0 +1,5 @@
+# Every prod resource lives in the "rides" namespace: `kubectl delete namespace rides` removes it all.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: rides
