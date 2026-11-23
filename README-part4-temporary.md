@@ -40,6 +40,7 @@ To publish a new version: change the tag (`0.1.0`) in `docker-compose.yml` and `
 ## 🧪 Run in dev (docker compose)
 
 Every service runs in Docker on your machine; you run training from your terminal.
+Prerequisite: the data in `data/raw/` (see Getting started).
 
 ```bash
 cp .env.example .env                          # Windows: Copy-Item .env.example .env
@@ -93,6 +94,7 @@ uv run python -m rides.train
 uv run python -m rides.evaluate                    # → PROMOTED to @staging
 unset MLFLOW_TRACKING_URI                          # Windows: Remove-Item Env:MLFLOW_TRACKING_URI
 git checkout -- reports/                           # these reports describe prod, not the commit
+uv run dvc checkout                                # restores reports/train_info.json for dev
 kubectl rollout restart deployment/api -n rides    # the API loads the new @staging model
 curl http://localhost:8080/health                  # Windows: curl.exe
 ```

@@ -71,7 +71,7 @@ services:
     environment:
       # MLflow serves the model files itself (--serve-artifacts): the API needs no storage credentials
       MLFLOW_TRACKING_URI: http://mlflow:5000
-      MODEL_URI: ${MODEL_URI}
+      MODEL_URI: ${MODEL_URI:-models:/rides-classifier@staging}
     ports: ["8000:8000"]
 
 volumes:
