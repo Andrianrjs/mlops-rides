@@ -1,0 +1,21 @@
+{
+  "model_version": 5,
+  "promoted": true,
+  "reason": "macro F1 0.253 beats the baseline by 0.071 (no other model in @staging)",
+  "window": {
+    "macro_f1": 0.252901923275412,
+    "reckless_recall": 0.3728813559322034,
+    "false_alarm_rate": 0.034261241970021415
+  },
+  "ride": {
+    "macro_f1": 0.45585106382978724,
+    "reckless_recall": 1.0,
+    "false_alarm_rate": 0.0
+  },
+  "baseline": {
+    "macro_f1": 0.18152386268490092,
+    "reckless_recall": 0.0,
+    "false_alarm_rate": 0.0
+  },
+  "champion": null
+}

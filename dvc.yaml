@@ -1,0 +1,55 @@
+# Pipeline DAG: prepare -> train -> evaluate.  Run from the repo root:  uv run --env-file .env dvc repro
+# A stage re-runs only when one of its deps or params changed. train and evaluate also talk to MLflow
+# (MLFLOW_TRACKING_URI in .env): train registers a new rides-classifier version, evaluate may move @staging.
+# deps list every module a stage imports, so a code change anywhere in its path re-runs it.
+stages:
+  prepare:
+    cmd: python -m rides.prepare
+    deps:
+      - data/raw/GBG500.parquet
+      - data/raw/GBG500_labels.csv
+      - src/rides/config.py
+      - src/rides/data.py
+      - src/rides/prepare.py
+    params:
+      - prepare
+    outs:
+      - data/processed/windows.npz
+
+  train:
+    cmd: python -m rides.train
+    deps:
+      - data/processed/windows.npz
+      - src/rides/config.py
+      - src/rides/data.py      # Scaler, CLASSES, SENSORS
+      - src/rides/model.py
+      - src/rides/prepare.py   # load_windows
+      - src/rides/train.py
+    params:
+      - train
+    outs:
+      # Not in git on purpose: it names a run and version in *your* MLflow. A fresh clone has no
+      # copy, so train runs and registers a model in that machine's MLflow instead of being skipped.
+      - reports/train_info.json
+
+  evaluate:
+    cmd: python -m rides.evaluate
+    deps:
+      - data/processed/windows.npz
+      - reports/train_info.json
+      - src/rides/config.py
+      - src/rides/data.py      # CLASSES
+      - src/rides/evaluate.py
+      - src/rides/prepare.py   # load_windows
+      - src/rides/train.py     # metrics, per_ride
+    params:
+      - evaluate
+    metrics:
+      - reports/eval.json:
+          cache: false
+    plots:
+      - reports/predictions.csv:
+          cache: false
+          template: confusion
+          x: actual
+          y: predicted
