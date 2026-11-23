@@ -47,11 +47,30 @@ services:
       MLFLOW_S3_ENDPOINT_URL: http://rustfs:9000
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      # Host headers MLflow accepts (DNS rebinding protection): the host machine and the other containers
+      MLFLOW_SERVER_ALLOWED_HOSTS: "localhost:*,mlflow:5000"
     command: >
       mlflow server --host 0.0.0.0 --port 5000
       --backend-store-uri postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       --artifacts-destination s3://mlflow --serve-artifacts
     ports: ["5001:5000"]
+    healthcheck:               # the API loads its model at startup, so it waits for this
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:                         # prediction API, Swagger on http://localhost:8000/docs
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    depends_on:
+      mlflow: { condition: service_healthy }
+    environment:
+      # MLflow serves the model files itself (--serve-artifacts): the API needs no storage credentials
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MODEL_URI: ${MODEL_URI}
+    ports: ["8000:8000"]
 
 volumes:
   minio-data:
