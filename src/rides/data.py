@@ -25,12 +25,15 @@ def load_rides(raw_dir: Path = RAW_DIR) -> tuple[pd.DataFrame, pd.DataFrame]:
     return rides, labels
 
 
-def split_rides(labels: pd.DataFrame, test_size: float, seed: int) -> tuple[set, set]:
-    """Split ride ids (not windows!) so no ride appears in both train and test."""
-    train_ids, test_ids = train_test_split(
-        labels["ride_id"], test_size=test_size, stratify=labels["y"], random_state=seed
-    )
-    return set(train_ids), set(test_ids)
+def split_rides(labels: pd.DataFrame, test_size: float, val_size: float, seed: int) -> dict[str, set]:
+    """Split ride ids (not windows!) into train / val / test, stratified on the label.
+
+    No ride appears in two splits. The test split is drawn first, so it does not depend on val_size.
+    val_size is a share of the rides left after the test split.
+    """
+    rest, test = train_test_split(labels, test_size=test_size, stratify=labels["y"], random_state=seed)
+    train, val = train_test_split(rest, test_size=val_size, stratify=rest["y"], random_state=seed)
+    return {"train": set(train["ride_id"]), "val": set(val["ride_id"]), "test": set(test["ride_id"])}
 
 
 def make_windows(rides: pd.DataFrame, labels: pd.DataFrame, window: int, stride: int):
