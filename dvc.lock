@@ -52,8 +52,8 @@ stages:
       size: 2604
     - path: src/rides/model.py
       hash: md5
-      md5: 11152780f0ffb06a49c1c85704c1a0f4
-      size: 1807
+      md5: cbb9d3071e55de75d4a7f02f8e87d288
+      size: 1765
     - path: src/rides/prepare.py
       hash: md5
       md5: 3b4afac9f160314c52722e34454ffd0c
