@@ -18,7 +18,7 @@ How to use this file once fix/review-parts-1-2 is merged (README.md is edited on
 - [x] API added to `docker-compose.yml` (dev) · [ ] web app (after PR #4)
 - [x] Kubernetes enabled in Docker Desktop (kubeadm, 1 node)
 - [x] `k8s/`: RustFS, Postgres, MLflow and API on the cluster (prod = all services), with readiness / liveness probes and resource limits · [ ] web app (after PR #4)
-- [x] Images pushed to Docker Hub
+- [x] Images pushed to Docker Hub, multi-architecture (`linux/amd64` + `linux/arm64`)
 - **Hands over:** `docker compose up -d` starts dev · `kubectl apply -f k8s/` starts prod
 
 <!-- ===== B. new section ===== -->
@@ -31,9 +31,21 @@ How to use this file once fix/review-parts-1-2 is merged (README.md is edited on
 | MLflow server | [louisec13012/rides-mlflow](https://hub.docker.com/r/louisec13012/rides-mlflow) | `docker/mlflow/Dockerfile` |
 | Web app | (after PR #4) | `docker/webapp.Dockerfile` |
 
-`docker compose build` builds them under these names, so dev and prod run the same images.
-To publish a new version: change the tag (`0.1.0`) in `docker-compose.yml` and `k8s/`, then
-`docker compose build` and `docker push louisec13012/rides-api:<tag>` (same for `rides-mlflow`).
+Images on Docker Hub are **multi-architecture** (`linux/amd64` and `linux/arm64`): Docker pulls the
+native one on Windows/Linux PCs and on Apple Silicon Macs. `docker compose build` builds them locally
+under the same names, for your machine's architecture only, so dev and prod run the same images.
+
+**Publish a new version** with `buildx`, never with `docker compose build` + `docker push`
+(that would replace the multi-architecture image with a single-architecture one):
+
+1. Pick a **new tag** (e.g. `0.2.0`) and update it in `docker-compose.yml` and `k8s/`. Never reuse a
+   published tag: machines that already pulled it would keep the old image.
+2. From the repo root:
+
+```bash
+docker buildx build --platform linux/amd64,linux/arm64 -f docker/api.Dockerfile -t louisec13012/rides-api:<tag> --push .
+docker buildx build --platform linux/amd64,linux/arm64 -t louisec13012/rides-mlflow:<tag> --push docker/mlflow
+```
 
 <!-- ===== C. new section ===== -->
 
@@ -78,7 +90,8 @@ kubectl get nodes                             # docker-desktop   Ready
 
 ```bash
 kubectl apply -f k8s/00-namespace.yaml
-kubectl create secret generic rides-secrets -n rides --from-env-file=.env  # credentials never go to git
+# credentials never go to git; safe to re-run (one line, so it works in bash and PowerShell)
+kubectl create secret generic rides-secrets -n rides --from-env-file=.env --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -f k8s/
 kubectl get pods -n rides -w                  # wait until all are Running 1/1 (rustfs-init: Completed)
 ```
@@ -113,5 +126,7 @@ curl http://localhost:8080/health                  # Windows: curl.exe
 - **MLflow serves the model files** (`--serve-artifacts`): the API needs the MLflow URL only, no storage credentials.
 - **MLflow host check.** Since MLflow 3.5, the server rejects unknown Host headers (DNS rebinding protection). `MLFLOW_SERVER_ALLOWED_HOSTS` allows `localhost:*` and `mlflow:5000` (the API inside Docker or Kubernetes); the Kubernetes probes call `localhost` for the same reason.
 - **2 MLflow workers.** The default (4) went over the 3 GB memory limit on the cluster (OOMKilled).
+- **Multi-architecture images** (`linux/amd64`, `linux/arm64`), built with `docker buildx`: the team works on both Windows PCs and Apple Silicon Macs, and an amd64-only image would run emulated (slow, and numeric libraries like torch can crash under emulation).
 - **Secrets** come from `.env` (dev) or a Kubernetes Secret created from it (prod); no credential is committed or baked into an image.
+- **Known limit:** `.env.example` holds default development credentials, and everyone copies it. Fine for services reachable only from your machine; a real deployment would set its own values and keep them in a secret manager.
 - **Plain manifests rather than Helm:** the same images and settings as in dev, one file per service, easy to read and explain.
