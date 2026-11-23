@@ -154,7 +154,7 @@ cp .env.example .env
 docker compose up -d     # MLflow → http://localhost:5001 · Minio console → http://localhost:9001
 uv run dvc remote modify --local storage access_key_id minio            # RustFS credentials,
 uv run dvc remote modify --local storage secret_access_key minio-secret # kept out of git (.dvc/config.local)
-uv run dvc pull          # data/raw/ from the dvc bucket (first time: see "Data with DVC" below)
+uv run dvc pull data/raw # raw data only (first time: see "Data with DVC" below)
 uv run --env-file .env dvc repro             # prepare → train → evaluate, sets @staging
 uv run uvicorn rides.api.main:app --reload   # Swagger → http://localhost:8000/docs
 ```
@@ -188,7 +188,7 @@ GBG500.parquet.dvc   GBG500_labels.csv.dvc
 - **Known limit:** if you re-run `evaluate` on the version already in `@staging` with a stricter gate, it is tagged `failed` but keeps `@staging` (the API is never left without a model).
 
 ### Data with DVC
-The remote is the `dvc` bucket on **your own** local RustFS (`localhost:9000`), so the first time it is empty. Seed it once: copy `GBG500.parquet` and `GBG500_labels.csv` into `data/raw/`, run `uv run dvc add data/raw/GBG500.parquet data/raw/GBG500_labels.csv` (`git diff` must show no change to the `.dvc` files: same data, same hash), then `uv run dvc push`. After that, `dvc pull` / `dvc push` work as usual.
+The remote is the `dvc` bucket on **your own** local RustFS (`localhost:9000`), so the first time it is empty. Seed it once: copy `GBG500.parquet` and `GBG500_labels.csv` into `data/raw/`, run `uv run dvc add data/raw/GBG500.parquet data/raw/GBG500_labels.csv` (`git diff` must show no change to the `.dvc` files: same data, same hash), then `uv run dvc push`. After that, use `uv run dvc pull data/raw` and `uv run dvc push`. Do not run a bare `dvc pull`: `dvc.lock` also lists pipeline outputs (`windows.npz`, `train_info.json`, ...) that only exist in the cache of the machine that produced them, so it would report missing files. `dvc repro` rebuilds them instead.
 
 Windows: `PYTHONUTF8=1` in `.env` (already in `.env.example`) avoids a crash when MLflow prints emojis under `dvc repro`. Line endings are forced to LF (`.gitattributes`) because DVC hashes the bytes of the code it depends on: CRLF on one machine would make every stage look changed on the others.
 

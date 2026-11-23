@@ -1,14 +1,14 @@
 {
-  "model_version": 5,
+  "model_version": 1,
   "promoted": true,
-  "reason": "macro F1 0.253 beats the baseline by 0.071 (no other model in @staging)",
+  "reason": "macro F1 0.237 beats the baseline by 0.055 (no other model in @staging)",
   "window": {
-    "macro_f1": 0.252901923275412,
-    "reckless_recall": 0.3728813559322034,
-    "false_alarm_rate": 0.034261241970021415
+    "macro_f1": 0.23681532463081986,
+    "reckless_recall": 0.5423728813559322,
+    "false_alarm_rate": 0.09314775160599571
   },
   "ride": {
-    "macro_f1": 0.45585106382978724,
+    "macro_f1": 0.48560509554140124,
     "reckless_recall": 1.0,
     "false_alarm_rate": 0.0
   },
