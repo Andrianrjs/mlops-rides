@@ -3591,6 +3591,7 @@ source = { editable = "." }
 dependencies = [
     { name = "boto3" },
     { name = "fastapi" },
+    { name = "matplotlib" },
     { name = "mlflow" },
     { name = "numpy" },
     { name = "pandas" },
@@ -3613,6 +3614,7 @@ dev = [
 requires-dist = [
     { name = "boto3", specifier = ">=1.42" },
     { name = "fastapi", specifier = ">=0.165.0" },
+    { name = "matplotlib", specifier = ">=3.11" },
     { name = "mlflow", specifier = ">=3.18.0" },
     { name = "numpy", specifier = ">=2.5.5" },
     { name = "pandas", specifier = ">=3.1.1" },

@@ -25,17 +25,23 @@ EVAL_FILE = Path("reports/eval.json")                # dvc metrics
 PREDICTIONS_FILE = Path("reports/predictions.csv")  # dvc plots (confusion matrix)
 
 
-def should_promote(candidate: dict, baseline: dict, champion: dict | None, min_gain: float) -> tuple[bool, str]:
-    """Evaluation gate. Each dict holds window-level metrics: macro_f1, reckless_recall.
+def should_promote(candidate: dict, baseline: dict, champion: dict | None,
+                   min_gain: float, max_false_alarm_rate: float) -> tuple[bool, str]:
+    """Evaluation gate. Each dict holds window-level metrics: macro_f1, reckless_recall, false_alarm_rate.
 
     Promote only if the candidate beats the "always Safe" baseline by min_gain on macro F1,
-    detects Reckless better than it, and is not worse than the model currently in @staging.
+    detects Reckless better than it, rarely flags the borderline classes as Reckless,
+    and is not worse than the model currently in @staging.
     """
     gain = candidate["macro_f1"] - baseline["macro_f1"]
     if gain < min_gain:
-        return False, f"macro F1 {candidate['macro_f1']:.3f} beats the baseline by {gain:.3f} < {min_gain}"
+        return False, (f"macro F1 {candidate['macro_f1']:.3f} is {gain:+.3f} vs the baseline "
+                       f"({baseline['macro_f1']:.3f}), at least +{min_gain} needed")
     if candidate["reckless_recall"] <= baseline["reckless_recall"]:
         return False, f"Reckless recall {candidate['reckless_recall']:.3f} is not above the baseline"
+    if candidate["false_alarm_rate"] > max_false_alarm_rate:
+        return False, (f"false alarm rate {candidate['false_alarm_rate']:.3f} on borderline classes "
+                       f"is above {max_false_alarm_rate}")
     if champion is not None and candidate["macro_f1"] < champion["macro_f1"]:
         return False, f"macro F1 {candidate['macro_f1']:.3f} is below the current @staging ({champion['macro_f1']:.3f})"
     return True, f"macro F1 {candidate['macro_f1']:.3f} beats the baseline by {gain:.3f}" + (
@@ -79,7 +85,7 @@ def main():
     if champion_version is not None and champion_version != version:
         champion = window_metrics(score(f"models:/{name}@{p['alias']}", x), y)
 
-    promote, reason = should_promote(candidate, baseline, champion, p["min_gain"])
+    promote, reason = should_promote(candidate, baseline, champion, p["min_gain"], p["max_false_alarm_rate"])
     print(f"{name} v{version}: {'PROMOTED to @' + p['alias'] if promote else 'not promoted'} - {reason}")
 
     # log to the training run of this version, and tag the version in the registry
@@ -99,6 +105,7 @@ def main():
     for key, value in {
         "eval_window_macro_f1": f"{candidate['macro_f1']:.4f}",
         "eval_window_reckless_recall": f"{candidate['reckless_recall']:.4f}",
+        "eval_window_false_alarm_rate": f"{candidate['false_alarm_rate']:.4f}",
         "eval_gate": "passed" if promote else "failed",
         "eval_reason": reason,
     }.items():
