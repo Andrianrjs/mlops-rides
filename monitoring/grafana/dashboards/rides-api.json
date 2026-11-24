@@ -119,7 +119,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(api_requests_total{endpoint=\"/v1/predict\",status=~\"5..\"}[5m])) / clamp_min(sum(rate(api_requests_total{endpoint=\"/v1/predict\"}[5m])), 1e-9)",
+          "expr": "(sum(rate(api_requests_total{endpoint=\"/v1/predict\",status=~\"5..\"}[5m])) or vector(0)) / clamp_min(sum(rate(api_requests_total{endpoint=\"/v1/predict\"}[5m])), 1e-9)",
           "legendFormat": "",
           "datasource": {
             "type": "prometheus",
@@ -340,7 +340,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(prediction_total{label=\"Reckless\"}[30m])) / clamp_min(sum(rate(prediction_total[30m])), 1e-9)",
+          "expr": "(sum(rate(prediction_total{label=\"Reckless\"}[30m])) or vector(0)) / clamp_min(sum(rate(prediction_total[30m])), 1e-9)",
           "legendFormat": "",
           "datasource": {
             "type": "prometheus",
