@@ -14,6 +14,7 @@ dependencies = [
     "mlflow>=3.18.0",
     "numpy>=2.5.5",
     "pandas>=3.1.1",
+    "prometheus-client>=0.22",  # api/metrics.py: GET /metrics for Prometheus (bonus monitoring)
     "pyarrow>=26.0.1",
     "pyyaml>=6.0.3",
     "scikit-learn>=1.9.1",
@@ -35,3 +36,18 @@ dev = [
     "pytest>=9.2.0",
     "ruff>=0.17.6",
 ]
+
+[tool.ruff]
+line-length = 120  # the code base is written at 120 columns
+target-version = "py312"
+
+[tool.ruff.lint.per-file-ignores]
+# lifespan catches every error on purpose: the API starts "degraded" instead of crashing
+"src/rides/api/main.py" = ["BLE001"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["tests"]  # tests/tiny_model.py, shared by the integration tests and the CD e2e job
+addopts = "--import-mode=importlib"  # test files may share a name across unit/, integration/, e2e/
+markers = ["e2e: needs a running API (E2E_BASE_URL); skipped otherwise"]
+filterwarnings = ["ignore::DeprecationWarning", "ignore::UserWarning"]
