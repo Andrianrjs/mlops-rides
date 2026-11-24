@@ -1,0 +1,52 @@
+name: CI
+
+# Lint + unit and integration tests on every push and pull request.
+# Runs on GitHub-hosted runners: no access to Docker Hub or the cluster is needed here.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      MLFLOW_DISABLE_AGENT_HINT: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      # --locked: fails if uv.lock is out of sync with pyproject.toml.
+      # Python comes from .python-version (3.12).
+      - name: Dependencies
+        run: uv sync --locked
+
+      # Lint the whole code base; format check only on tests/ (src/ files are DVC deps:
+      # reformatting them would change their hash and re-run the whole pipeline).
+      - name: Lint
+        run: |
+          uvx ruff@0.17.2 check src tests
+          uvx ruff@0.17.2 format --check tests
+
+      # tests/e2e are skipped here (no running API): they run in cd.yml against the Docker image.
+      - name: Unit and integration tests
+        run: uv run --no-sync pytest -q -rxs --junitxml=reports/junit.xml
+
+      - name: Test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit
+          path: reports/junit.xml
+          if-no-files-found: ignore
