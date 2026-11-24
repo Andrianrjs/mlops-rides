@@ -115,11 +115,12 @@ The API exposes `/metrics/` (`src/rides/api/metrics.py`), one family per layer, 
 | Predictions | `prediction_total{label}`, `prediction_reckless_probability` | a Reckless share far above ~1 % points to drift |
 | Model | `model_info{version}` | which version is served |
 
-Alerts (`monitoring/prometheus/alerts.yml`): API down, 5xx above 5 %, p95 latency above 500 ms,
+Alerts (`monitoring/prometheus/alerts.yml`): API down, 5xx above 5 %, p95 latency above 1 s,
 Reckless share above 20 %.
 
 **Calibrate the thresholds on a baseline run** (session 6), not on intuition: load the API, read the
-p95 latency and the error rate, then set the alert thresholds above that baseline.
+p95 latency and the error rate, then set the alert thresholds above that baseline. Our baseline
+(20 users, about 35 req/s on a laptop CPU, no errors): p95 about 0.4 s, hence the 1 s latency alert.
 
 ```bash
 uvx locust -f monitoring/loadtest/locustfile.py --host http://localhost:8000 \
