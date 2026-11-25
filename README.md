@@ -430,6 +430,19 @@ Windows: `PYTHONUTF8=1` in `.env` (already in `.env.example`) avoids a crash whe
 
 ---
 
+## 📸 Production screenshots
+
+Everything below runs on the local Kubernetes cluster (Docker Desktop), namespace `rides`.
+
+| | |
+|---|---|
+| Pods (all ready) | ![pods](docs/screenshots/01-k8s-pods.png) |
+| Web app (prod, :8502) | ![web app](docs/screenshots/02-webapp-prod.png) |
+| API Swagger (prod, :8080) | ![swagger](docs/screenshots/03-swagger-prod.png) |
+| Images on Docker Hub | ![docker hub](docs/screenshots/04-dockerhub.png) |
+
+---
+
 ## 📁 Repository structure
 
 ```
