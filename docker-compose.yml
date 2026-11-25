@@ -74,6 +74,16 @@ services:
       MODEL_URI: ${MODEL_URI:-models:/rides-classifier@staging}
     ports: ["8000:8000"]
 
+  webapp:                      # Streamlit UI on http://localhost:8501
+    build:
+      context: .
+      dockerfile: docker/webapp.Dockerfile
+    image: louisec13012/rides-webapp:0.1.0
+    depends_on: [api]          # it shows the API status itself, so it does not wait for a loaded model
+    environment:
+      API_URL: http://api:8000
+    ports: ["8501:8501"]
+
 volumes:
   minio-data:
   pg-data:
