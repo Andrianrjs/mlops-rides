@@ -15,7 +15,7 @@ API_URL = os.getenv("API_URL", "http://127.0.0.1:8000")
 st.title("🚲 Rides Behavior Classification")
 st.markdown(
     "Classify riding behavior from IMU time series (accelerometer & gyroscope) into "
-    "**Safe**, **Safe Overall**, **Bad Weather**, **Tandem**, or **Reckless**."
+    "**Safe**, **Safe overall**, **Bad weather**, **Tandem**, or **Reckless**."
 )
 
 # Sidebar: API Health Status
@@ -126,7 +126,7 @@ if readings_df is not None:
 
                     if label == "Reckless":
                         st.error(f"🚨 **Class: {label}** (High Risk Detected)")
-                    elif label in ["Safe", "Safe Overall"]:
+                    elif label in ["Safe", "Safe overall"]:
                         st.success(f"✅ **Class: {label}**")
                     else:
                         st.warning(f"⚠️ **Class: {label}**")
