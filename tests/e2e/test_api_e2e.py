@@ -12,7 +12,7 @@ import httpx
 import pytest
 
 BASE_URL = os.getenv("E2E_BASE_URL")
-LABELS = {"Safe", "Safe Overall", "Bad Weather", "Tandem", "Reckless"}
+LABELS = {"Safe", "Safe overall", "Bad weather", "Tandem", "Reckless"}  # same names as rides.api.schemas.Label
 
 pytestmark = [
     pytest.mark.e2e,

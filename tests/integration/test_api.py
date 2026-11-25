@@ -58,7 +58,6 @@ def test_invalid_payload_is_a_422(client, payload):
     assert client.post("/v1/predict", json=payload).status_code == 422
 
 
-@pytest.mark.xfail(strict=True, reason="schemas.Ride does not check 6 values per step yet: the model fails -> 500")
 @pytest.mark.parametrize(
     "readings",
     [

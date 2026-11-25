@@ -36,6 +36,9 @@ dev = [
     "pytest>=9.2.0",
     "ruff>=0.17.6",
 ]
+webapp = [
+    "streamlit>=1.67.0",
+]
 
 [tool.ruff]
 line-length = 120  # the code base is written at 120 columns
