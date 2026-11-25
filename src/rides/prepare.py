@@ -1,4 +1,4 @@
-"""DVC stage `prepare`: split rides, cut them into raw windows and save them for train and evaluate.
+"""DVC stage `prepare`: split rides into train / val / test, cut them into raw windows and save them.
 
 Windows are saved raw (not normalised): train fits the scaler, and evaluate feeds raw values
 to the registered model, exactly like the API does.
@@ -22,10 +22,10 @@ def load_windows(path: Path = WINDOWS_FILE) -> dict[str, np.ndarray]:
 def main():
     p = load_params("prepare")
     rides, labels = load_rides()
-    train_ids, test_ids = split_rides(labels, test_size=p["test_size"], seed=p["seed"])
+    splits = split_rides(labels, test_size=p["test_size"], val_size=p["val_size"], seed=p["seed"])
 
     arrays = {}
-    for name, ids in [("train", train_ids), ("test", test_ids)]:
+    for name, ids in splits.items():
         x, y, groups = make_windows(rides[rides["ride_id"].isin(ids)], labels, p["window"], p["stride"])
         arrays |= {f"x_{name}": x, f"y_{name}": y, f"rides_{name}": groups}
         print(f"{name}: {len(ids)} rides, {len(x)} windows", dict(zip(CLASSES, np.bincount(y, minlength=len(CLASSES)).tolist())))

@@ -4,7 +4,8 @@
 prepare:
   window: 100       # 100 steps x 100 ms = 10 s (model contract: T = 100)
   stride: 50        # 50 % overlap between consecutive windows
-  test_size: 0.2    # share of rides held out, split by ride and stratified on the label
+  test_size: 0.2    # share of rides held out for the evaluation gate, split by ride and stratified on the label
+  val_size: 0.2     # share of the remaining rides used to pick the best epoch (never seen by the gate)
   seed: 42
 
 train:
@@ -14,8 +15,10 @@ train:
   channels: 64
   dropout: 0.3
   seed: 42
+  device: cpu       # cpu gives the same results on every machine; mps (Apple GPU) or cuda is faster but not reproducible
 
 evaluate:
   model_name: rides-classifier
-  alias: staging     # the API serves models:/rides-classifier@staging
-  min_gain: 0.05     # window macro F1 must beat the "always Safe" baseline by at least this much
+  alias: staging              # the API serves models:/rides-classifier@staging
+  min_gain: 0.05              # window macro F1 must beat the "always Safe" baseline by at least this much
+  max_false_alarm_rate: 0.10  # at most 10 % of Safe overall / Bad weather / Tandem windows flagged as Reckless

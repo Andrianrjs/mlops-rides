@@ -10,6 +10,7 @@ requires-python = ">=3.12"
 dependencies = [
     "boto3>=1.42",
     "fastapi>=0.165.0",
+    "matplotlib>=3.11",  # evaluate.py: confusion matrix figure
     "mlflow>=3.18.0",
     "numpy>=2.5.5",
     "pandas>=3.1.1",
@@ -33,4 +34,7 @@ dev = [
     "httpx>=0.28.1",
     "pytest>=9.2.0",
     "ruff>=0.17.6",
+]
+webapp = [
+    "streamlit>=1.67.0",
 ]
