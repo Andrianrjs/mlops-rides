@@ -1,0 +1,103 @@
+name: Retrain
+
+# Bonus: pull data -> retrain -> evaluation gate -> redeploy the API if a new model reached @staging.
+# Manual (with a reason, e.g. "drift" or "new data") or weekly. Runs on the self-hosted runner,
+# which hosts the dev storage (DVC remote) and the prod cluster (MLflow on localhost:5002).
+#
+# Repository secrets: RUSTFS_ACCESS_KEY_ID, RUSTFS_SECRET_ACCESS_KEY (DVC remote credentials)
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Why retrain (drift, new data, ...)"
+        required: true
+        type: string
+  schedule:
+    - cron: "17 3 * * 1"  # Monday 03:17 UTC
+
+permissions:
+  contents: read
+
+# one training run at a time: each run registers a version and may move @staging
+concurrency:
+  group: retrain
+  cancel-in-progress: false
+
+env:
+  MLFLOW_TRACKING_URI: http://localhost:5002  # prod MLflow (k8s/40-mlflow.yaml, service mlflow-ui)
+  MLFLOW_DISABLE_AGENT_HINT: "1"
+  PYTHONUTF8: "1"
+  NAMESPACE: rides
+  PROD_URL: http://localhost:8080
+
+jobs:
+  retrain:
+    runs-on: self-hosted
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      # via env, not inlined in the script: the free-text reason cannot inject shell commands
+      - name: Reason
+        env:
+          REASON: ${{ inputs.reason || 'weekly schedule' }}
+        run: |
+          echo "Retraining because: $REASON" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Dependencies
+        run: uv sync --locked
+
+      # Credentials go to .dvc/config.local (git-ignored), as in the README
+      - name: Pull data
+        env:
+          KEY_ID: ${{ secrets.RUSTFS_ACCESS_KEY_ID }}
+          SECRET: ${{ secrets.RUSTFS_SECRET_ACCESS_KEY }}
+        run: |
+          uv run dvc remote modify --local storage access_key_id "$KEY_ID"
+          uv run dvc remote modify --local storage secret_access_key "$SECRET"
+          uv run dvc pull data/raw
+
+      # --force: retrain even if code, data and params are unchanged (the point of a retraining run)
+      - name: prepare -> train -> evaluate
+        run: uv run dvc repro --force
+
+      - name: Gate result
+        id: gate
+        run: |
+          promoted=$(uv run --no-sync python -c "import json; print(str(json.load(open('reports/eval.json'))['promoted']).lower())")
+          reason=$(uv run --no-sync python -c "import json; print(json.load(open('reports/eval.json'))['reason'])")
+          echo "promoted=$promoted" >> "$GITHUB_OUTPUT"
+          echo "- Gate: **$promoted** ($reason)" >> "$GITHUB_STEP_SUMMARY"
+
+      # The API loads @staging at startup: a restart serves the new version
+      - name: Redeploy the API
+        if: steps.gate.outputs.promoted == 'true'
+        run: |
+          test "$(kubectl config current-context)" = "docker-desktop"
+          kubectl rollout restart deployment/api -n "$NAMESPACE"
+          kubectl rollout status deployment/api -n "$NAMESPACE" --timeout=300s
+
+      - name: Smoke test (prod)
+        if: steps.gate.outputs.promoted == 'true'
+        env:
+          E2E_BASE_URL: ${{ env.PROD_URL }}
+        run: uv run --no-sync pytest tests/e2e -q -p no:cacheprovider
+
+      - name: Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          path: |
+            reports/eval.json
+            reports/predictions.csv
+          if-no-files-found: ignore
