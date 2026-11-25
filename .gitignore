@@ -1,4 +1,4 @@
-data/
+# data/ is tracked by DVC: it writes its own .gitignore next to each file it tracks
 *.parquet
 *.zip
 mlruns/

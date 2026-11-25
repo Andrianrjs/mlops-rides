@@ -27,6 +27,14 @@ The three borderline classes look like abnormal riding (weather, two riders, rou
 ### Model input — design choice
 The project brief mentions an API that receives an *image*. Our data is **IMU time series, not images**, so the API receives a **ride as a sequence of sensor readings (JSON)**. This keeps the raw signal and avoids an artificial image conversion.
 
+### Supervised training — design choice
+The data description says the labels are *used only for evaluation*, which suggests an anomaly-detection setup (learn normal rides, flag the unusual ones). We train a **supervised 5-class classifier** instead:
+- the three borderline classes are *meant* to look abnormal without being dangerous, so an anomaly detector trained without labels would flag them as well; the labels are what teach the model to separate them from *Reckless*;
+- the API contract returns a class and 5 probabilities, which an anomaly score cannot give;
+- the project grades the MLOps infrastructure, and the model only has to beat chance.
+
+The labels never leak into evaluation: test rides are held out before training and only scored at the end.
+
 ### How we measure success
 The model only needs to **beat chance**: infrastructure is what is graded. But with 83 % *Safe*, a model that always answers "Safe" gets 83 % accuracy while detecting nothing. We therefore track:
 - **macro F1** across the 5 classes;
@@ -34,7 +42,7 @@ The model only needs to **beat chance**: infrastructure is what is graded. But w
 - **false alarm rate** on *Safe Overall*, *Bad Weather* and *Tandem*.
 
 **Baseline to beat:** always predict the majority class.
-Because *Reckless* has only 6 rides, we use **stratified cross-validation** and split each ride into **fixed-size windows** to get more training samples.
+Because *Reckless* has only 6 rides, rides are split **by ride** into train / validation / test (64 / 16 / 20 %), **stratified on the label** so every split keeps every class, and each ride is cut into **fixed-size windows** to get more training samples. The validation set picks the best epoch; the test set is only used for the final score and the evaluation gate. We do not run cross-validation: with a deep model and a registry entry per run, one fixed split keeps the pipeline simple and its results comparable from run to run.
 
 ---
 
@@ -93,10 +101,10 @@ data (Minio + DVC) → training (PyTorch) → tracking & registry (MLflow, artif
 - **Hands over:** the exact model input format: window length **T**, list of the **C** sensor columns, normalisation stats
 
 ### 2 · MLflow + pipeline — @mnegron-cloud
-- [ ] `evaluate.py`: macro F1, Reckless recall, confusion matrix logged to MLflow; promote to **`@staging`** if better than baseline
-- [ ] DVC: `dvc init`, Minio remote (bucket `dvc`), `dvc add data/raw/GBG500.parquet`, `dvc push`
-- [ ] `dvc.yaml`: `prepare → train → evaluate` DAG (the required pipeline DAG)
-- [ ] `params.yaml`: hyperparameters
+- [x] `evaluate.py`: macro F1, Reckless recall, confusion matrix logged to MLflow; promote to **`@staging`** if better than baseline
+- [x] DVC: `dvc init`, Minio remote (bucket `dvc`), `dvc add data/raw/GBG500.parquet`, `dvc push`
+- [x] `dvc.yaml`: `prepare → train → evaluate` DAG (the required pipeline DAG)
+- [x] `params.yaml`: hyperparameters
 - **Hands over:** a `models:/rides-classifier@staging` model in MLflow
 
 ### 3 · API + web app — @handle3
@@ -152,9 +160,49 @@ git clone https://github.com/Andrianrjs/mlops-rides.git && cd mlops-rides
 uv sync
 cp .env.example .env
 docker compose up -d     # MLflow → http://localhost:5001 · Minio console → http://localhost:9001
-# Data: copy GBG500.parquet and GBG500_labels.csv into data/raw/ (until `dvc pull` is set up)
+uv run dvc remote modify --local storage access_key_id minio            # RustFS credentials,
+uv run dvc remote modify --local storage secret_access_key minio-secret # kept out of git (.dvc/config.local)
+uv run dvc pull data/raw # raw data only (first time: see "Data with DVC" below)
+uv run --env-file .env dvc repro             # prepare → train → evaluate, sets @staging
 uv run uvicorn rides.api.main:app --reload   # Swagger → http://localhost:8000/docs
 ```
+
+---
+
+## 🔁 Pipeline: DVC + MLflow
+
+```
+GBG500.parquet.dvc   GBG500_labels.csv.dvc
+             \           /
+              prepare          → data/processed/windows.npz (raw 100-step windows, rides split train / val / test)
+             /       \
+         train        |        → keeps the best epoch on val, registers a new rides-classifier version
+             \       /
+             evaluate          → evaluation gate, sets @staging, writes reports/eval.json
+```
+
+- **Run it:** `uv run --env-file .env dvc repro`. A stage re-runs only if its code, data or `params.yaml` section changed (`uv run dvc dag` shows the graph).
+- **Settings:** everything is in `params.yaml` (`prepare`: window, stride, split · `train`: hyperparameters · `evaluate`: gate). Change a value, `dvc repro`, then commit `params.yaml` + `dvc.lock` + `reports/eval.json` together.
+- **Reproducibility:** every seed comes from `params.yaml` and training runs on `train.device: cpu` by default, so the same commit gives the same model on every machine (up to tiny floating-point differences between CPUs). `mps` (Apple GPU) or `cuda` is faster but not reproducible: use it for quick tries only.
+- **What to commit:** `dvc.lock` and `reports/` change on every `dvc repro`, and `reports/eval.json` names a version in *your* local MLflow. Commit them **only together with a code or `params.yaml` change**; otherwise discard them (`git checkout -- dvc.lock reports/`) to avoid merge conflicts.
+- **Side effects:** every run of `train` registers a new version and `evaluate` may move `@staging`, so avoid `dvc exp run` for quick tries: the experiment's model could end up in `@staging` without being committed.
+- **Your MLflow is local:** `reports/train_info.json` (which run / version this pipeline registered) is cached by DVC but kept out of git, so a fresh clone always trains and registers in its own MLflow. If you wipe MLflow (`docker compose down -v`), run `uv run --env-file .env dvc repro --force train` to register again.
+- **Results:** `uv run dvc metrics show` (`reports/eval.json`), `uv run dvc plots show` (confusion matrix), and in MLflow: the run's `eval/confusion_matrix.png`, the version's `eval_*` tags.
+- **Evaluation gate** (`should_promote` in `src/rides/evaluate.py`): the new version gets `@staging` only if, on the test windows,
+  1. its macro F1 beats the "always Safe" baseline by at least `evaluate.min_gain` (0.05),
+  2. its Reckless recall is above the baseline's (0),
+  3. at most `evaluate.max_false_alarm_rate` (10 %) of the *Safe overall*, *Bad weather* and *Tandem* windows are flagged as *Reckless*,
+  4. its macro F1 is not below the model currently in `@staging` (re-scored on the same test set).
+
+  A failed gate does not fail `dvc repro`: it is recorded in `reports/eval.json` (`"promoted": false`) and in the version's `eval_gate` / `eval_reason` tags.
+- **Model format:** logged as pickle with an explicit signature `(-1, -1, 6)`, so any batch size and any T ≥ 10 work through `mlflow.pyfunc` (MLflow's default pt2 format would freeze batch = 1 and T = 100). The API must send `float32`. The modules the model needs (`rides/data.py`, `rides/model.py`) are bundled with it (`code_paths`), so it loads even where the package is not installed; this relies on MLflow's defaults `MLFLOW_ALLOW_PICKLE_DESERIALIZATION=true` and `MLFLOW_ALLOW_MODEL_CODE_EXECUTION=true`.
+- **Known limit, Reckless:** the dataset has only 6 *Reckless* rides, so the test set holds **1** (about 60 windows) and the validation set 1. The Reckless recall used by the gate therefore depends on a single ride: treat it as a smoke test, not as a reliable measure.
+- **Known limit:** if you re-run `evaluate` on the version already in `@staging` with a stricter gate, it is tagged `failed` but keeps `@staging` (the API is never left without a model).
+
+### Data with DVC
+The remote is the `dvc` bucket on **your own** local RustFS (`localhost:9000`), so the first time it is empty. Seed it once: copy `GBG500.parquet` and `GBG500_labels.csv` into `data/raw/`, run `uv run dvc add data/raw/GBG500.parquet data/raw/GBG500_labels.csv` (`git diff` must show no change to the `.dvc` files: same data, same hash), then `uv run dvc push`. After that, use `uv run dvc pull data/raw` and `uv run dvc push`. Do not run a bare `dvc pull`: `dvc.lock` also lists pipeline outputs (`windows.npz`, `train_info.json`, ...) that only exist in the cache of the machine that produced them, so it would report missing files. `dvc repro` rebuilds them instead.
+
+Windows: `PYTHONUTF8=1` in `.env` (already in `.env.example`) avoids a crash when MLflow prints emojis under `dvc repro`. Line endings are forced to LF (`.gitattributes`) because DVC hashes the bytes of the code it depends on: CRLF on one machine would make every stage look changed on the others.
 
 ---
 
