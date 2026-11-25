@@ -1,0 +1,91 @@
+# S3-compatible storage for MLflow artifacts (bucket "mlflow") and DVC data (bucket "dvc").
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rustfs-data
+  namespace: rides
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rustfs
+  namespace: rides
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate             # one pod at a time on the same volume
+  selector:
+    matchLabels: { app: rustfs }
+  template:
+    metadata:
+      labels: { app: rustfs }
+    spec:
+      containers:
+        - name: rustfs
+          image: rustfs/rustfs:1.0.6
+          env:
+            - { name: RUSTFS_VOLUMES, value: /data }
+            - { name: RUSTFS_ADDRESS, value: "0.0.0.0:9000" }
+            - { name: RUSTFS_CONSOLE_ADDRESS, value: "0.0.0.0:9001" }
+            - { name: RUSTFS_CONSOLE_ENABLE, value: "true" }
+            - name: RUSTFS_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: rides-secrets, key: MINIO_ROOT_USER } }
+            - name: RUSTFS_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: rides-secrets, key: MINIO_ROOT_PASSWORD } }
+          ports:
+            - { name: s3, containerPort: 9000 }
+            - { name: console, containerPort: 9001 }
+          readinessProbe:
+            tcpSocket: { port: s3 }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 1Gi }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: rustfs-data }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rustfs
+  namespace: rides
+spec:
+  selector: { app: rustfs }
+  ports:
+    - { name: s3, port: 9000, targetPort: s3 }
+    - { name: console, port: 9001, targetPort: console }
+---
+# Creates the buckets once storage answers, then stops (re-running it is harmless).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rustfs-init
+  namespace: rides
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: create-buckets
+          image: amazon/aws-cli:2.42.1
+          env:
+            - { name: AWS_DEFAULT_REGION, value: us-east-1 }
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom: { secretKeyRef: { name: rides-secrets, key: MINIO_ROOT_USER } }
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: rides-secrets, key: MINIO_ROOT_PASSWORD } }
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              until aws --endpoint-url http://rustfs:9000 s3 ls; do echo "waiting for storage..."; sleep 2; done
+              aws --endpoint-url http://rustfs:9000 s3 mb s3://mlflow || true
+              aws --endpoint-url http://rustfs:9000 s3 mb s3://dvc || true

@@ -1,0 +1,50 @@
+# Prediction API. Loads models:/rides-classifier@staging from MLflow at startup.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: rides
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: api }
+  template:
+    metadata:
+      labels: { app: api }
+    spec:
+      containers:
+        - name: api
+          image: louisec13012/rides-api:0.1.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MODEL_URI
+              valueFrom: { configMapKeyRef: { name: rides-config, key: MODEL_URI } }
+            - name: MLFLOW_TRACKING_URI
+              valueFrom: { configMapKeyRef: { name: rides-config, key: MLFLOW_TRACKING_URI } }
+          ports:
+            - { name: http, containerPort: 8000 }
+          # readiness: no traffic until a model is loaded (/health answers 503 before that)
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          # liveness: only checks the process answers, so a missing model does not cause a restart loop
+          livenessProbe:
+            tcpSocket: { port: http }
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 200m, memory: 512Mi }
+            limits: { memory: 2Gi }
+---
+# LoadBalancer: on Docker Desktop, the API opens on http://localhost:8080 (8000 is the dev API).
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: rides
+spec:
+  type: LoadBalancer
+  selector: { app: api }
+  ports:
+    - { name: http, port: 8080, targetPort: http }

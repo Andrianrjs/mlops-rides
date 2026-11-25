@@ -1,0 +1,45 @@
+# Web app (Streamlit). Calls the API through its Service inside the cluster.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webapp
+  namespace: rides
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: webapp }
+  template:
+    metadata:
+      labels: { app: webapp }
+    spec:
+      containers:
+        - name: webapp
+          image: louisec13012/rides-webapp:0.1.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - { name: API_URL, value: "http://api:8080" }   # the api Service listens on 8080
+          ports:
+            - { name: http, containerPort: 8501 }
+          readinessProbe:
+            httpGet: { path: /_stcore/health, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /_stcore/health, port: http }
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 1Gi }
+---
+# LoadBalancer: on Docker Desktop, the web app opens on http://localhost:8502 (8501 is the dev web app).
+apiVersion: v1
+kind: Service
+metadata:
+  name: webapp
+  namespace: rides
+spec:
+  type: LoadBalancer
+  selector: { app: webapp }
+  ports:
+    - { name: http, port: 8502, targetPort: http }

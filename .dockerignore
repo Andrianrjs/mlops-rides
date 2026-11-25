@@ -1,0 +1,19 @@
+# Keep the build context small: images only need pyproject.toml, uv.lock and src/
+.git/
+.venv/
+.dvc/
+data/
+reports/
+mlruns/
+mlartifacts/
+model/
+tests/
+docs/
+k8s/
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+.ruff_cache/
+.env
+.env.*
+!.env.example

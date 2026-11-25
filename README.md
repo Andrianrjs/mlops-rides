@@ -49,7 +49,7 @@ Because *Reckless* has only 6 rides, rides are split **by ride** into train / va
 ##  Architecture
 
 ```
-data (Minio + DVC) → training (PyTorch) → tracking & registry (MLflow, artifacts on Minio)
+data (RustFS + DVC) → training (PyTorch) → tracking & registry (MLflow, artifacts on RustFS)
       → API (FastAPI) → Docker image (Docker Hub) → Kubernetes ← CI/CD GitHub Actions (self-hosted runner)
                                        ↑
                                  demo web app
@@ -57,8 +57,8 @@ data (Minio + DVC) → training (PyTorch) → tracking & registry (MLflow, artif
 
 | Environment | Where | Services |
 |---|---|---|
-| **dev** | local machine, `docker compose` | Minio, MLflow, Postgres, API, web app |
-| **prod** | local Kubernetes (**Docker Desktop**) | **all services**: Minio, MLflow, Postgres, API, web app (Helm charts where available) |
+| **dev** | local machine, `docker compose` | RustFS, MLflow, Postgres, API, web app |
+| **prod** | local Kubernetes (**Docker Desktop**) | **all services**: RustFS, MLflow, Postgres, API, web app (manifests in `k8s/`) |
 
 ---
 
@@ -68,7 +68,7 @@ data (Minio + DVC) → training (PyTorch) → tracking & registry (MLflow, artif
 |---|---|---|
 | 1 | Extract data | `src/rides/data.py` |
 | 2 | Deep learning classification model (5 classes) | `src/rides/model.py`, `src/rides/train.py` (PyTorch) |
-| 3 | Model stored on S3 (Minio) | MLflow artifacts → bucket `mlflow` |
+| 3 | Model stored on S3 (RustFS, S3-compatible) | MLflow artifacts → bucket `mlflow` |
 | 4 | Track models and experiments | MLflow, model `rides-classifier` |
 | 5 | Prediction API | `src/rides/api/` (FastAPI, Swagger at `/docs`) |
 | 6 | Dockerized API on Kubernetes via GitHub Actions | `docker/`, `k8s/`, `.github/workflows/` |
@@ -114,14 +114,15 @@ data (Minio + DVC) → training (PyTorch) → tracking & registry (MLflow, artif
 - 💡 Until the real model exists: test with a dummy model returning random probabilities
 - **Hands over:** an API running with `uv run uvicorn rides.api.main:app`
 
-### 4 · Docker + Kubernetes — @handle4
-- [ ] `docker/api.Dockerfile`, `docker/webapp.Dockerfile`
-- [ ] Add the API and web app to `docker-compose.yml` (**dev**)
-- [ ] Enable Kubernetes in **Docker Desktop** (Settings → Kubernetes)
-- [ ] `k8s/`: Deployment + Service + readiness/liveness probes on `/health` for the API and web app
-- [ ] Deploy **MLflow, Minio and Postgres on the cluster too** (prod = all services), using existing Helm charts
-- [ ] Push images to **Docker Hub** (URLs go in the submission email)
-- **Hands over:** `docker compose up` starts dev, `kubectl apply -f k8s/` (+ Helm) starts prod
+### 4 · Docker + Kubernetes — @lcaquelin
+- [x] Clean up the Docker setup: pinned image versions, Postgres and MLflow healthchecks, MinIO services renamed to RustFS, outdated `docker/mlflow/docker-compose.yml` removed
+- [x] `docker/api.Dockerfile` (CPU-only torch, non-root user, healthcheck) and `.dockerignore`
+- [x] `docker/webapp.Dockerfile` (only the `webapp` dependency group: no torch)
+- [x] API and web app added to `docker-compose.yml` (dev)
+- [x] Kubernetes enabled in Docker Desktop (kubeadm, 1 node)
+- [x] `k8s/`: RustFS, Postgres, MLflow, API and web app on the cluster (prod = all services), with readiness / liveness probes and resource limits
+- [x] Images pushed to Docker Hub, multi-architecture (`linux/amd64` + `linux/arm64`)
+- **Hands over:** `docker compose up -d` starts dev · `kubectl apply -f k8s/` starts prod
 
 ### 5 · CI/CD + tests + bonus — @handle5
 - [ ] Set up a **self-hosted GitHub runner** (Settings → Actions → Runners)
@@ -148,7 +149,7 @@ Fixed now so everyone can work in parallel. **Do not change without telling the 
 | Model input | `float32`, shape `(batch, T, C)` *(T and C set by @Andrianrjs)* |
 | Model output | probabilities, shape `(batch, 5)`, order: Safe, Safe Overall, Bad Weather, Tandem, Reckless |
 | API route | `POST /v1/predict` |
-| Minio buckets | `mlflow` (artifacts), `dvc` (data) |
+| RustFS buckets | `mlflow` (artifacts), `dvc` (data) |
 
 
 ---
@@ -159,13 +160,124 @@ Fixed now so everyone can work in parallel. **Do not change without telling the 
 git clone https://github.com/Andrianrjs/mlops-rides.git && cd mlops-rides
 uv sync
 cp .env.example .env
-docker compose up -d     # MLflow → http://localhost:5001 · Minio console → http://localhost:9001
+docker compose up -d     # MLflow → http://localhost:5001 · RustFS console → http://localhost:9001
 uv run dvc remote modify --local storage access_key_id minio            # RustFS credentials,
 uv run dvc remote modify --local storage secret_access_key minio-secret # kept out of git (.dvc/config.local)
 uv run dvc pull data/raw # raw data only (first time: see "Data with DVC" below)
 uv run --env-file .env dvc repro             # prepare → train → evaluate, sets @staging
 uv run uvicorn rides.api.main:app --reload   # Swagger → http://localhost:8000/docs
 ```
+
+---
+
+## 🐳 Docker images
+
+| Image | Docker Hub | Built from |
+|---|---|---|
+| API | [louisec13012/rides-api](https://hub.docker.com/r/louisec13012/rides-api) | `docker/api.Dockerfile` |
+| MLflow server | [louisec13012/rides-mlflow](https://hub.docker.com/r/louisec13012/rides-mlflow) | `docker/mlflow/Dockerfile` |
+| Web app | [louisec13012/rides-webapp](https://hub.docker.com/r/louisec13012/rides-webapp) | `docker/webapp.Dockerfile` |
+
+Images on Docker Hub are **multi-architecture** (`linux/amd64` and `linux/arm64`): Docker pulls the
+native one on Windows/Linux PCs and on Apple Silicon Macs. `docker compose build` builds them locally
+under the same names, for your machine's architecture only, so dev and prod run the same images.
+
+**Publish a new version** with `buildx`, never with `docker compose build` + `docker push`
+(that would replace the multi-architecture image with a single-architecture one):
+
+1. Pick a **new tag** (e.g. `0.2.0`) and update it in `docker-compose.yml` and `k8s/`. Never reuse a
+   published tag: machines that already pulled it would keep the old image.
+2. From the repo root:
+
+```bash
+docker buildx build --platform linux/amd64,linux/arm64 -f docker/api.Dockerfile -t louisec13012/rides-api:<tag> --push .
+docker buildx build --platform linux/amd64,linux/arm64 -t louisec13012/rides-mlflow:<tag> --push docker/mlflow
+docker buildx build --platform linux/amd64,linux/arm64 -f docker/webapp.Dockerfile -t louisec13012/rides-webapp:<tag> --push .
+```
+
+---
+
+## 🧪 Run in dev (docker compose)
+
+Every service runs in Docker on your machine; you run training from your terminal.
+Prerequisite: the data in `data/raw/` (see Getting started).
+
+```bash
+cp .env.example .env                          # Windows: Copy-Item .env.example .env
+docker compose up -d --build --remove-orphans # RustFS, Postgres, MLflow, API, web app
+uv run --env-file .env dvc repro              # trains and puts a model in @staging
+docker compose restart api                    # the API loads the @staging model at startup
+curl http://localhost:8000/health             # Windows: curl.exe → {"status":"ok", ...}
+```
+
+| Service | URL |
+|---|---|
+| MLflow UI | http://localhost:5001 |
+| API (Swagger) | http://localhost:8000/docs |
+| RustFS console | http://localhost:9001 |
+| Web app | http://localhost:8501 |
+
+`--remove-orphans` stops the old `minio` / `minio-init` containers if you started the stack
+before they were renamed; your data is kept (the volume is still named `minio-data`).
+
+---
+
+## 🚀 Deploy to prod (Kubernetes on Docker Desktop)
+
+Prod runs **every service** on the local Kubernetes cluster, in the `rides` namespace,
+on ports that do not clash with dev, so both can run at the same time.
+
+**Once:** Docker Desktop → Settings → Kubernetes → *Enable Kubernetes* (kubeadm), then:
+
+```bash
+kubectl config use-context docker-desktop
+kubectl get nodes                             # docker-desktop   Ready
+```
+
+**Deploy:**
+
+```bash
+kubectl apply -f k8s/00-namespace.yaml
+# credentials never go to git; safe to re-run (one line, so it works in bash and PowerShell)
+kubectl create secret generic rides-secrets -n rides --from-env-file=.env --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -f k8s/
+kubectl get pods -n rides -w                  # wait until all are Running 1/1 (rustfs-init: Completed)
+```
+
+The API stays `0/1` at first: the prod MLflow starts empty, so there is no model to serve yet
+(its readiness probe keeps traffic away until there is one).
+
+**Register the first prod model** (needs `data/processed/windows.npz`, i.e. one dev `dvc repro`):
+
+```bash
+export MLFLOW_TRACKING_URI=http://localhost:5002   # Windows: $env:MLFLOW_TRACKING_URI = "http://localhost:5002"
+uv run python -m rides.train
+uv run python -m rides.evaluate                    # → PROMOTED to @staging
+unset MLFLOW_TRACKING_URI                          # Windows: Remove-Item Env:MLFLOW_TRACKING_URI
+git checkout -- reports/                           # these reports describe prod, not the commit
+uv run dvc checkout                                # restores reports/train_info.json for dev
+kubectl rollout restart deployment/api -n rides    # the API loads the new @staging model
+curl http://localhost:8080/health                  # Windows: curl.exe
+```
+
+| Service | URL |
+|---|---|
+| MLflow UI (prod) | http://localhost:5002 |
+| API (prod, Swagger) | http://localhost:8080/docs |
+| Web app (prod) | http://localhost:8502 |
+
+**Remove everything:** `kubectl delete namespace rides` (this also deletes the prod data).
+
+### Design choices (part 4)
+- **CPU-only torch in the API image.** On Linux, the default torch build pulls several GB of NVIDIA CUDA libraries that are useless without a GPU. The Dockerfile installs every dependency pinned by `uv.lock` except torch, then torch at the same version from the PyTorch CPU index: about 490 MB to download instead of several GB.
+- **Readiness vs liveness.** The API's `/health` answers 503 until a model is loaded. It drives the **readiness** probe (no traffic before a model is there); the **liveness** probe only checks the port answers, so a missing model does not cause a restart loop.
+- **MLflow serves the model files** (`--serve-artifacts`): the API needs the MLflow URL only, no storage credentials.
+- **MLflow host check.** Since MLflow 3.5, the server rejects unknown Host headers (DNS rebinding protection). `MLFLOW_SERVER_ALLOWED_HOSTS` allows `localhost:*` and `mlflow:5000` (the API inside Docker or Kubernetes); the Kubernetes probes call `localhost` for the same reason.
+- **2 MLflow workers.** The default (4) went over the 3 GB memory limit on the cluster (OOMKilled).
+- **Multi-architecture images** (`linux/amd64`, `linux/arm64`), built with `docker buildx`: the team works on both Windows PCs and Apple Silicon Macs, and an amd64-only image would run emulated (slow, and numeric libraries like torch can crash under emulation).
+- **Secrets** come from `.env` (dev) or a Kubernetes Secret created from it (prod); no credential is committed or baked into an image.
+- **Known limit:** `.env.example` holds default development credentials, and everyone copies it. Fine for services reachable only from your machine; a real deployment would set its own values and keep them in a secret manager.
+- **Plain manifests rather than Helm:** the same images and settings as in dev, one file per service, easy to read and explain.
 
 ---
 

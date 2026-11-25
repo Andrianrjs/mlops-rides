@@ -1,0 +1,81 @@
+# Tracking server and model registry; serves model files from RustFS (--serve-artifacts),
+# so clients (API, training) need no storage credentials.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow
+  namespace: rides
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: mlflow }
+  template:
+    metadata:
+      labels: { app: mlflow }
+    spec:
+      containers:
+        - name: mlflow
+          image: louisec13012/rides-mlflow:0.1.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MLFLOW_S3_ENDPOINT_URL
+              valueFrom: { configMapKeyRef: { name: rides-config, key: MLFLOW_S3_ENDPOINT_URL } }
+            - name: MLFLOW_SERVER_ALLOWED_HOSTS
+              valueFrom: { configMapKeyRef: { name: rides-config, key: MLFLOW_SERVER_ALLOWED_HOSTS } }
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom: { secretKeyRef: { name: rides-secrets, key: MINIO_ROOT_USER } }
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: rides-secrets, key: MINIO_ROOT_PASSWORD } }
+            - name: POSTGRES_USER
+              valueFrom: { secretKeyRef: { name: rides-secrets, key: POSTGRES_USER } }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: rides-secrets, key: POSTGRES_PASSWORD } }
+            - name: POSTGRES_DB
+              valueFrom: { secretKeyRef: { name: rides-secrets, key: POSTGRES_DB } }
+          command: ["mlflow", "server"]
+          args:                # Kubernetes replaces $(VAR) with the container's env values
+            - --host=0.0.0.0
+            - --port=5000
+            - --workers=2      # each worker holds a full copy of the app in memory (default: 4)
+            - --backend-store-uri=postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)
+            - --artifacts-destination=s3://mlflow
+            - --serve-artifacts
+          ports:
+            - { name: http, containerPort: 5000 }
+          # exec probes call localhost, a Host header MLflow accepts (an httpGet probe would use the pod IP)
+          readinessProbe:
+            exec:
+              command: ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+            initialDelaySeconds: 60
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 200m, memory: 512Mi }
+            limits: { memory: 3Gi }
+---
+# Inside the cluster: http://mlflow:5000 (used by the API)
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow
+  namespace: rides
+spec:
+  selector: { app: mlflow }
+  ports:
+    - { name: http, port: 5000, targetPort: http }
+---
+# From your machine: on Docker Desktop, a LoadBalancer opens on http://localhost:5002 (5001 is the dev MLflow)
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow-ui
+  namespace: rides
+spec:
+  type: LoadBalancer
+  selector: { app: mlflow }
+  ports:
+    - { name: http, port: 5002, targetPort: http }

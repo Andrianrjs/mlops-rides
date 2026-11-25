@@ -1,6 +1,6 @@
 services:
-  minio:                       # stockage S3 (RustFS, remplaçant de Minio)
-    image: rustfs/rustfs:latest
+  rustfs:                      # S3-compatible storage (replaces MinIO, whose images left Docker Hub)
+    image: rustfs/rustfs:1.0.6
     environment:
       RUSTFS_VOLUMES: /data
       RUSTFS_ADDRESS: 0.0.0.0:9000
@@ -9,11 +9,11 @@ services:
       RUSTFS_ACCESS_KEY: ${MINIO_ROOT_USER}
       RUSTFS_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
     ports: ["9000:9000", "9001:9001"]
-    volumes: [minio-data:/data]
+    volumes: [minio-data:/data]  # volume name kept so existing MLflow artifacts survive the rename
 
-  minio-init:                  # crée les buckets mlflow et dvc, puis s'arrête
-    image: amazon/aws-cli:latest
-    depends_on: [minio]
+  rustfs-init:                 # creates the mlflow and dvc buckets, then exits
+    image: amazon/aws-cli:2.42.1
+    depends_on: [rustfs]
     environment:
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
@@ -21,9 +21,9 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        until aws --endpoint-url http://minio:9000 s3 ls; do echo "attente du stockage..."; sleep 2; done
-        aws --endpoint-url http://minio:9000 s3 mb s3://mlflow || true
-        aws --endpoint-url http://minio:9000 s3 mb s3://dvc || true
+        until aws --endpoint-url http://rustfs:9000 s3 ls; do echo "waiting for storage..."; sleep 2; done
+        aws --endpoint-url http://rustfs:9000 s3 mb s3://mlflow || true
+        aws --endpoint-url http://rustfs:9000 s3 mb s3://dvc || true
 
   postgres:
     image: postgres:16
@@ -32,21 +32,57 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     volumes: [pg-data:/var/lib/postgresql/data]
+    healthcheck:               # MLflow must not start before the database accepts connections
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   mlflow:
     build: docker/mlflow
+    image: louisec13012/rides-mlflow:0.1.0
     depends_on:
-      postgres: { condition: service_started }
-      minio-init: { condition: service_completed_successfully }
+      postgres: { condition: service_healthy }
+      rustfs-init: { condition: service_completed_successfully }
     environment:
-      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      MLFLOW_S3_ENDPOINT_URL: http://rustfs:9000
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      # Host headers MLflow accepts (DNS rebinding protection): the host machine and the other containers
+      MLFLOW_SERVER_ALLOWED_HOSTS: "localhost:*,mlflow:5000"
     command: >
       mlflow server --host 0.0.0.0 --port 5000
       --backend-store-uri postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       --artifacts-destination s3://mlflow --serve-artifacts
     ports: ["5001:5000"]
+    healthcheck:               # the API loads its model at startup, so it waits for this
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:                         # prediction API, Swagger on http://localhost:8000/docs
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    image: louisec13012/rides-api:0.1.0
+    depends_on:
+      mlflow: { condition: service_healthy }
+    environment:
+      # MLflow serves the model files itself (--serve-artifacts): the API needs no storage credentials
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MODEL_URI: ${MODEL_URI:-models:/rides-classifier@staging}
+    ports: ["8000:8000"]
+
+  webapp:                      # Streamlit UI on http://localhost:8501
+    build:
+      context: .
+      dockerfile: docker/webapp.Dockerfile
+    image: louisec13012/rides-webapp:0.1.0
+    depends_on: [api]          # it shows the API status itself, so it does not wait for a loaded model
+    environment:
+      API_URL: http://api:8000
+    ports: ["8501:8501"]
 
 volumes:
   minio-data:
